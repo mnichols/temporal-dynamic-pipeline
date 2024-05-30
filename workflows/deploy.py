@@ -16,6 +16,20 @@ with workflow.unsafe.imports_passed_through():
     from activities import PipelineActions
 
 
+@dataclass
+class ComponentState:
+    api_form: str
+    status: str
+    id: str
+    output: {}
+    input: {}
+
+
+@dataclass
+class DeployState:
+    components: [ComponentState]
+
+
 @workflow.defn
 class ValidateDeployment:
     @workflow.run
@@ -47,20 +61,6 @@ class ValidateDeployment:
                 retry_policy=RetryPolicy(maximum_attempts=10),
             )
         return state
-
-
-@dataclass
-class ComponentState:
-    api_form: str
-    status: str
-    id: str
-    output: {}
-    input: {}
-
-
-@dataclass
-class DeployState:
-    components: [ComponentState]
 
 
 @workflow.defn
@@ -137,15 +137,6 @@ class Deploy:
             output=None,
             input=c.input,
         ), params.components))
-
-        for idx, component in enumerate(state.components):
-            # poor man's component id generator
-            if not component.id:
-                component.id = await workflow.execute_local_activity(
-                    PipelineActions.get_id,
-                    component.api_form,
-                )
-            state.components[idx] = await self.deploy_component(params, state, component)
 
         for index, component in enumerate(state.components):
             state.components[index] = await self.deploy_component(params, state, component)
