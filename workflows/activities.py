@@ -55,13 +55,15 @@ class PipelineActions:
         res = await client.status(Request(
             id=req.id,
         ))
+
+        print(f'got back {req.id} with status {res.status_code} from status call {res.body}')
         res.body = {} if not res.body else res.body
 
         if res.status_code == 200:
             # underlying service supports: BUILDING, SUCCESS, ERROR
             if res.body.get('status') == COMPONENT_STATUS_BUILDING:
                 raise ApplicationError(
-                    non_retryable=True,
+                    non_retryable=False,
                     type=COMPONENT_STATUS_BUILDING,
                     message=COMPONENT_STATUS_BUILDING,
                 )
@@ -72,7 +74,7 @@ class PipelineActions:
             )
         if res.status_code == 404:
             raise ApplicationError(
-                non_retryable=False,
+                non_retryable=True,
                 type=COMPONENT_STATUS_NOT_FOUND,
                 message=COMPONENT_STATUS_NOT_FOUND,
             )

@@ -4,6 +4,9 @@ version = "0.1.0"
 description = ""
 authors = ["Mike Nichols <mike.nichols@temporal.io>"]
 readme = "README.md"
+packages = [
+    { include = "**/*.py", from = "."  }
+]
 
 [tool.poetry.dependencies]
 python = "^3.9"

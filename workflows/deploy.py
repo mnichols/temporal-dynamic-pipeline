@@ -5,7 +5,7 @@ from typing import Dict, Any, List
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, ActivityError
 
 from messaging.commands import ValidateComponentRequest, DeployComponentRequest
 from messaging.queries import GetComponentStatusRequest, GetComponentOutputRequest
@@ -76,6 +76,7 @@ class Deploy:
     # other errors bubble all the way up
     async def deploy_component(self, params: DeployRequest, deploy_state: DeployState,
                                component_state: ComponentState) -> ComponentState:
+        workflow.logger.info(f'enter deploy_component for {component_state.id}')
 
         if component_state.status in [COMPONENT_STATUS_SUCCESS, COMPONENT_STATUS_ERROR]:
             # this assumes success or error yields an output
@@ -89,6 +90,8 @@ class Deploy:
             )).output
             return component_state
         try:
+            workflow.logger.info(f'calling status for {component_state.id}')
+
             # this will infrequently poll the status due to activity non_retryable failure distinction
             component_state.status = (await workflow.execute_activity_method(
                 PipelineActions.get_status,
@@ -100,32 +103,40 @@ class Deploy:
                 retry_policy=RetryPolicy(
                     backoff_coefficient=1.0,
                     # poll every 30 seconds
-                    initial_interval=timedelta(seconds=30),
-                )
+                    initial_interval=timedelta(seconds=3),
+                    non_retryable_error_types=[COMPONENT_STATUS_NOT_FOUND],
+                ),
+
             )).status
             return await self.deploy_component(params, deploy_state, component_state)
 
-        except ApplicationError as err:
-            if err.type == COMPONENT_STATUS_NOT_FOUND:
-                # TODO perform transform here
-                deployment = await workflow.execute_activity_method(
-                    PipelineActions.deploy,
-                    DeployComponentRequest(
-                        id=component_state.id,
-                        api_form=component_state.api_form,
-                        input=component_state.input,
-                    ),
-                    start_to_close_timeout=timedelta(seconds=10),
-                )
-                # recursive call to exit
-                # we probably want to limit the number of times we are willing to do this recursion
-                # alternately this same function could be turned into a child_workflow :)
-                return await self.deploy_component(params, deploy_state, component_state)
-            # a general error much have come up while checking status or trying the deployment so just let bubble up
-            raise err
+        except ActivityError as err:
+            cause = err.cause
+            if isinstance(cause, ApplicationError):
+                workflow.logger.error(f'made it with err {err.cause.type}')
+
+                if err.cause.type == COMPONENT_STATUS_NOT_FOUND:
+                    # TODO perform transform here
+                    deployment = await workflow.execute_activity_method(
+                        PipelineActions.deploy,
+                        DeployComponentRequest(
+                            id=component_state.id,
+                            api_form=component_state.api_form,
+                            input=component_state.input,
+                        ),
+                        start_to_close_timeout=timedelta(seconds=10),
+                    )
+                    # recursive call to exit
+                    # we probably want to limit the number of times we are willing to do this recursion
+                    # alternately this same function could be turned into a child_workflow :)
+                    return await self.deploy_component(params, deploy_state, component_state)
+                # a general error much have come up while checking status or trying the deployment so just let bubble up
+                raise err
 
     @workflow.run
     async def run(self, params: DeployRequest) -> None:
+        workflow.logger.info("DEPLOYING")
+
         # ensure component ids first
         for idx, component in enumerate(params.components):
             # poor man's component id generator
