@@ -14,10 +14,17 @@ from messaging.values import COMPONENT_STATUS_NOT_FOUND, COMPONENT_STATUS_BUILDI
 ERR_GENERAL = 'GENERAL'
 
 
-#_________________________________________________________________________________________________________________________
+class Foo:
+    def __init__(self) -> None:
+        pass
+
+    @activity.defn
+    async def bar(self, val: str) -> str:
+        return 'hi'
+
+
 class PipelineActions:
-    #_________________________________________________________________________________________________________________________
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
     @activity.defn
@@ -32,11 +39,14 @@ class PipelineActions:
             id=req.id,
             body=req.input,
         ))
+
+        ok = False if not res.body else res.body.get('ok')
+        message = '' if not res.body else res.body.get('message')
         return ValidateComponentResponse(
             id=req.id,
             api_form=req.api_form,
-            ok=res.body.ok,
-            message=res.body.message,
+            ok=bool(ok),
+            message=str(message),
         )
 
     @activity.defn
@@ -44,12 +54,12 @@ class PipelineActions:
         client = get_pipeline_client(req.api_form)
         res = await client.status(Request(
             id=req.id,
-
         ))
+        res.body = {} if not res.body else res.body
 
         if res.status_code == 200:
             # underlying service supports: BUILDING, SUCCESS, ERROR
-            if res.body.status == COMPONENT_STATUS_BUILDING:
+            if res.body.get('status') == COMPONENT_STATUS_BUILDING:
                 raise ApplicationError(
                     non_retryable=True,
                     type=COMPONENT_STATUS_BUILDING,
@@ -58,7 +68,7 @@ class PipelineActions:
             return GetComponentStatusResponse(
                 api_form=req.api_form,
                 id=req.id,
-                status=res.body.status
+                status=str(res.body.get('status'))
             )
         if res.status_code == 404:
             raise ApplicationError(
@@ -70,7 +80,7 @@ class PipelineActions:
         raise ApplicationError(
             non_retryable=True,
             type=ERR_GENERAL,
-            message=res.body.error,  # assume we have some error spec we
+            message=str(res.body.get('error')),  # assume we have some error spec we
         )
 
     @activity.defn
@@ -96,5 +106,5 @@ class PipelineActions:
         return GetComponentOutputResponse(
             id=req.id,
             api_form=req.api_form,
-            output=res.body,
+            output=res.body or {},
         )

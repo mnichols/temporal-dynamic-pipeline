@@ -4,17 +4,23 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from workflows.deploy import Deploy
-from workflows.activities import validate
+from workflows.activities import PipelineActions
 
 
 async def main():
     client = await Client.connect("localhost:7233")
+    activities = PipelineActions()
 
     worker = Worker(
         client,
         task_queue="ci",
         workflows=[Deploy],
-        activities=[validate],
+        activities=[activities.get_id,
+                    activities.validate,
+                    activities.get_output,
+                    activities.get_status,
+                    activities.deploy
+                    ],
     )
     await worker.run()
 

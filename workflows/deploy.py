@@ -1,6 +1,7 @@
-import copy
+
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Dict, Any, List
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -11,9 +12,11 @@ from messaging.queries import GetComponentStatusRequest, GetComponentOutputReque
 from messaging.values import COMPONENT_STATUS_SUCCESS, COMPONENT_STATUS_NOT_FOUND, \
     COMPONENT_STATUS_ERROR, COMPONENT_STATUS_UNKNOWN
 from messaging.workflows import DeployRequest, ValidateDeploymentResponse
+from workflows.activities import PipelineActions, Foo
 
-with workflow.unsafe.imports_passed_through():
-    from activities import PipelineActions
+
+# with workflow.unsafe.imports_passed_through():
+#     from activities import PipelineActions
 
 
 @dataclass
@@ -21,13 +24,13 @@ class ComponentState:
     api_form: str
     status: str
     id: str
-    output: {}
-    input: {}
+    output: Dict[str, Any]
+    input: Dict[str, Any]
 
 
 @dataclass
 class DeployState:
-    components: [ComponentState]
+    components: List[ComponentState]
 
 
 @workflow.defn
@@ -38,28 +41,31 @@ class ValidateDeployment:
             validation={},
             inputs={},
         )
+
         # ensure component ids first
         for idx, component in enumerate(params.components):
             # poor man's component id generator
             if not component.id:
-                component.id = await workflow.execute_local_activity(
+                component.id = await workflow.execute_local_activity_method(
                     PipelineActions.get_id,
                     component.api_form,
+                    start_to_close_timeout=timedelta(seconds=10),
                 )
 
         for component in params.components:
             state.inputs[component.api_form] = component.input
             #  TODO accumulate validation results
-            state.validation[component.api_form] = await workflow.execute_activity(
+            out = await workflow.execute_activity_method(
                 PipelineActions.validate,
                 ValidateComponentRequest(
-                    id=component.id,
+                    id=component.id or '',
                     api_form=component.api_form,
-                    input=component.body,
+                    input=component.input,
                 ),
                 start_to_close_timeout=timedelta(seconds=10),
                 retry_policy=RetryPolicy(maximum_attempts=10),
             )
+            state.validation[component.api_form] = out
         return state
 
 
@@ -70,19 +76,21 @@ class Deploy:
     # other errors bubble all the way up
     async def deploy_component(self, params: DeployRequest, deploy_state: DeployState,
                                component_state: ComponentState) -> ComponentState:
+
         if component_state.status in [COMPONENT_STATUS_SUCCESS, COMPONENT_STATUS_ERROR]:
             # this assumes success or error yields an output
-            component_state.output = await workflow.execute_activity(
+            component_state.output = (await workflow.execute_activity_method(
                 PipelineActions.get_output,
                 GetComponentOutputRequest(
                     id=component_state.id,
                     api_form=component_state.api_form,
-                )
-            )
+                ),
+                start_to_close_timeout=timedelta(seconds=10),
+            )).output
             return component_state
         try:
             # this will infrequently poll the status due to activity non_retryable failure distinction
-            component_state.status = await workflow.execute_activity(
+            component_state.status = (await workflow.execute_activity_method(
                 PipelineActions.get_status,
                 GetComponentStatusRequest(
                     id=component_state.id,
@@ -94,17 +102,20 @@ class Deploy:
                     # poll every 30 seconds
                     initial_interval=timedelta(seconds=30),
                 )
-            )
+            )).status
+            return await self.deploy_component(params, deploy_state, component_state)
+
         except ApplicationError as err:
             if err.type == COMPONENT_STATUS_NOT_FOUND:
                 # TODO perform transform here
-                deployment = await workflow.execute_activity(
+                deployment = await workflow.execute_activity_method(
                     PipelineActions.deploy,
                     DeployComponentRequest(
                         id=component_state.id,
                         api_form=component_state.api_form,
                         input=component_state.input,
-                    )
+                    ),
+                    start_to_close_timeout=timedelta(seconds=10),
                 )
                 # recursive call to exit
                 # we probably want to limit the number of times we are willing to do this recursion
@@ -115,16 +126,15 @@ class Deploy:
 
     @workflow.run
     async def run(self, params: DeployRequest) -> None:
-
         # ensure component ids first
         for idx, component in enumerate(params.components):
             # poor man's component id generator
             if not component.id:
-                component.id = await workflow.execute_local_activity(
+                component.id = await workflow.execute_local_activity_method(
                     PipelineActions.get_id,
                     component.api_form,
+                    start_to_close_timeout=timedelta(10)
                 )
-
         # we could pass a `skip_validation` flag here
         # alternately, we could pass a `validation` results input
         # finally, could have the deployment continue after validation in Detached mode
@@ -133,10 +143,10 @@ class Deploy:
         state.components = list(map(lambda c: ComponentState(
             api_form=c.api_form,
             status=COMPONENT_STATUS_UNKNOWN,
-            id=c.id,
-            output=None,
+            id=c.id or '',
+            output={},
             input=c.input,
         ), params.components))
 
-        for index, component in enumerate(state.components):
-            state.components[index] = await self.deploy_component(params, state, component)
+        for index, com in enumerate(state.components):
+            state.components[index] = await self.deploy_component(params, state, com)
