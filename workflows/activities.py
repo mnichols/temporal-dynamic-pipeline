@@ -129,6 +129,9 @@ class PipelineActions:
             output=res.body or {},
         )
 
+    # this activity is for debug purposes only to get
+    # access to the current component progress.
+    # see the `deployed` key for actual parameters used to deploy each component
     @activity.defn
     async def get_component_progress(self) -> {}:
         return COMPONENT_PROGRESS
