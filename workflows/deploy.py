@@ -12,7 +12,7 @@ from messaging.queries import GetComponentStatusRequest, GetComponentOutputReque
 from messaging.values import COMPONENT_STATUS_SUCCESS, COMPONENT_STATUS_NOT_FOUND, \
     COMPONENT_STATUS_ERROR, COMPONENT_STATUS_UNKNOWN
 from messaging.workflows import DeployRequest, ValidateDeploymentResponse
-from workflows.activities import PipelineActions, Foo
+from workflows.activities import PipelineActions
 
 POLLING_INTERVAL_SECONDS = 3
 

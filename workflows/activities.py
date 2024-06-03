@@ -15,15 +15,6 @@ from clients.lookup import COMPONENT_PROGRESS
 ERR_GENERAL = 'GENERAL'
 
 
-class Foo:
-    def __init__(self) -> None:
-        pass
-
-    @activity.defn
-    async def bar(self, val: str) -> str:
-        return 'hi'
-
-
 class PipelineActions:
     def __init__(self) -> None:
         pass
