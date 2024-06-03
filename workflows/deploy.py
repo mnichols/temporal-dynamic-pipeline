@@ -14,9 +14,7 @@ from messaging.values import COMPONENT_STATUS_SUCCESS, COMPONENT_STATUS_NOT_FOUN
 from messaging.workflows import DeployRequest, ValidateDeploymentResponse
 from workflows.activities import PipelineActions, Foo
 
-
-# with workflow.unsafe.imports_passed_through():
-#     from activities import PipelineActions
+POLLING_INTERVAL_SECONDS = 3
 
 
 @dataclass
@@ -103,7 +101,7 @@ class Deploy:
                 retry_policy=RetryPolicy(
                     backoff_coefficient=1.0,
                     # poll every 30 seconds
-                    initial_interval=timedelta(seconds=3),
+                    initial_interval=timedelta(seconds=POLLING_INTERVAL_SECONDS),
                     non_retryable_error_types=[COMPONENT_STATUS_NOT_FOUND],
                 ),
 
@@ -116,14 +114,20 @@ class Deploy:
                 workflow.logger.error(f'made it with err {err.cause.type}')
 
                 if err.cause.type == COMPONENT_STATUS_NOT_FOUND:
+                    dr = DeployComponentRequest(
+                        id=component_state.id,
+                        api_form=component_state.api_form,
+                        input=component_state.input,
+                        component_outputs={},
+                    )
+                    for c in deploy_state.components:
+                        dr.component_outputs[c.api_form] = c.output
+
+                    workflow.logger.info(f'deploying with outputs {dr.component_outputs}')
                     # TODO perform transform here
                     deployment = await workflow.execute_activity_method(
                         PipelineActions.deploy,
-                        DeployComponentRequest(
-                            id=component_state.id,
-                            api_form=component_state.api_form,
-                            input=component_state.input,
-                        ),
+                        dr,
                         start_to_close_timeout=timedelta(seconds=10),
                     )
                     # recursive call to exit
@@ -161,3 +165,6 @@ class Deploy:
 
         for index, com in enumerate(state.components):
             state.components[index] = await self.deploy_component(params, state, com)
+
+        # handy for debugging
+        await workflow.execute_local_activity_method(PipelineActions.get_component_progress, start_to_close_timeout=timedelta(10))

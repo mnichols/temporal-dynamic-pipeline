@@ -10,7 +10,7 @@ class Component:
     input: Dict[str, Any]
     output: Dict[str, Any]
     api_form: str  # key
-    id: Optional[str] = ''
+    id: Optional[str] = '' # allow to inject id for request
 
 
 @dataclass

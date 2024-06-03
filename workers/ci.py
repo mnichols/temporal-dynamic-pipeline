@@ -19,7 +19,8 @@ async def main():
                     activities.validate,
                     activities.get_output,
                     activities.get_status,
-                    activities.deploy
+                    activities.deploy,
+                    activities.get_component_progress,
                     ],
     )
     await worker.run()

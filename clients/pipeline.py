@@ -23,13 +23,25 @@ class Response:
     headers: Optional[Dict[str, Any]]=None
     body: Optional[Dict[str, Any]] = None
 
+def generate_output(id: str) -> {}:
+    typical = { f'{id}-foo': 'bar', f'{id}-qux': 'qaz' }
+    if 'vmware' in id:
+        return {
+            'url': f'{id}.somehost.com',
+        } | typical
+    return typical
 
 # This represents the HTTP Client used to interact with the infra API
 # we can easily mock or stub this out to test it out
 class PipelineClient:
-    def __init__(self, cfg: ComponentConfig, component_progress: {}):
+    def __init__(self, cfg: ComponentConfig, component_progress: {}, transforms={}):
         self.component_progress = component_progress
+        self.transforms = transforms
         self.cfg = cfg
+
+    async def get_transforms(self, req: Request):
+        t = {} if not self.transforms.get(self.cfg.api_form) else self.transforms.get(self.cfg.api_form)
+        return Response(url=self.cfg.url, body=t, headers={'id':req.id}, status_code=200)
 
     async def validate(self, req: Request) -> Response:
         return Response(url=self.cfg.url, body=req.body, headers={'id': req.id}, status_code=200)
@@ -39,7 +51,7 @@ class PipelineClient:
             'deployed': req.body,
             'status_checks': 0,
         }
-        print(f'placed the component {req.id} into {self.component_progress}')
+        print(f'deployed the component {req.id} with {req.body}')
         return Response(url=self.cfg.url, body=req.body, headers={'id': req.id}, status_code=202)
 
     async def status(self, req: Request) -> Response:
@@ -53,4 +65,5 @@ class PipelineClient:
         return Response(url=self.cfg.url, body={'status': COMPONENT_STATUS_BUILDING}, headers={'id': req.id}, status_code=200)
 
     async def output(self, req: Request) -> Response:
-        return Response(url=self.cfg.url, body=req.body, headers={'id': req.id}, status_code=200)
+        out = generate_output(req.id)
+        return Response(url=self.cfg.url, body=out, headers={'id': req.id}, status_code=200)

@@ -10,6 +10,7 @@ from messaging.commands import ValidateComponentRequest, ValidateComponentRespon
 from messaging.queries import GetComponentStatusRequest, \
     GetComponentStatusResponse, GetComponentOutputRequest, GetComponentOutputResponse
 from messaging.values import COMPONENT_STATUS_NOT_FOUND, COMPONENT_STATUS_BUILDING
+from clients.lookup import COMPONENT_PROGRESS
 
 ERR_GENERAL = 'GENERAL'
 
@@ -88,6 +89,23 @@ class PipelineActions:
     @activity.defn
     async def deploy(self, req: DeployComponentRequest) -> DeployComponentResponse:
         client = get_pipeline_client(req.api_form)
+        res = await client.get_transforms(Request(
+            id = req.id,
+        ))
+        transforms = {} if not res.body else res.body
+
+        # this could just as easily be a local activity that produces
+        # values that we pass into this activity.
+        # however if I want to change these mappings from the environment
+        # the history would still use the old copies
+        for src_api_form,outputs in req.component_outputs.items():
+            # get the mapping scoped to this component api_form
+            scoped = transforms.get(src_api_form, {})
+            for k, output_value in outputs.items():
+                # here we swap the key configured for the transform
+                key = scoped.get(k, k)
+                req.input[key] = output_value
+
         res = await client.deploy(Request(
             id=req.id,
             body=req.input,
@@ -110,3 +128,7 @@ class PipelineActions:
             api_form=req.api_form,
             output=res.body or {},
         )
+
+    @activity.defn
+    async def get_component_progress(self) -> {}:
+        return COMPONENT_PROGRESS
